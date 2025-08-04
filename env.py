@@ -25,32 +25,35 @@ class mTSPEnv(gym.Env):
 
         self.reset()
 
+
     def get_action_mask(self):
         """
         각 agent별로 방문 가능한 노드만 1, 나머지는 0인 마스크 반환.
         shape: (num_agents, num_nodes)
         """
-        mask = np.zeros((self.num_agents, self.num_nodes), dtype=np.int32)
+        mask = np.zeros((self.num_agents, self.num_nodes + self.num_agents), dtype=np.int32)
         for agent_id in range(self.num_agents):
             for node_id in range(self.num_nodes):
                 if not self.visited[node_id]:
                     mask[agent_id, node_id] = 1
         return mask
 
+
     def _make_problem(self, num_agents, num_nodes, size):
         coords = np.random.rand(num_agents + num_nodes, 2) * size
         dist_matrix = np.linalg.norm(coords[:, None, :] - coords[None, :, :], axis=-1)
         return coords, dist_matrix
-        
+
 
     def reset(self):
         # 초기 상태
         self.current_nodes = np.arange(self.num_agents)  # [0, 1, ..., num_agents-1] 시작위치, agent0은 0번 노드, agent1은 1번 노드 ...
-        self.visited = np.zeros(self.num_nodes, dtype=bool)
+        self.visited = np.zeros(self.num_agents + self.num_nodes, dtype=bool)
         self.visited[self.current_nodes] = True
         self.agent_paths = [[start] for start in self.current_nodes]
         self.agent_costs = np.zeros(self.num_agents)
         return self._get_obs()
+
 
     def _get_obs(self):
         return {
@@ -58,11 +61,12 @@ class mTSPEnv(gym.Env):
             'visited': self.visited.copy()
         }
 
+
     def step(self, action):
         agent_id, next_node = action
         cur_node = self.current_nodes[agent_id]
 
-        if self.visited[next_node]:
+        if self.visited[next_node] or next_node < self.num_agents:
             reward = -100  # 페널티: 이미 방문한 노드
             done = False
             return self._get_obs(), reward, done, {}
@@ -123,11 +127,6 @@ class mTSPEnv(gym.Env):
         plt.grid(True)
         plt.axis('equal')
         plt.show()
-
-def create_dist_matrix(n_agents, n_nodes):
-    coords = np.random.rand(n_agents + n_nodes, 2) * 100
-    dist_matrix = np.linalg.norm(coords[:, None, :] - coords[None, :, :], axis=-1)
-    return coords, dist_matrix
 
 
 if __name__ == '__main__':
