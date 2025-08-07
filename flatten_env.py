@@ -7,17 +7,19 @@ class FlattenedEnv(gym.Env):
         super().__init__()
         self.env = base_env
         self.num_agents = base_env.num_agents
-        self.num_nodes = base_env.num_nodes  # 수정: 그대로 사용
+        self.num_task_nodes = base_env.num_task_nodes
+        self.num_total_nodes = self.num_agents + self.num_task_nodes
 
         # Flatten된 observation: 각 agent 위치 + visited (0 or 1)
         self.observation_space = spaces.Box(
             low=0.0, high=1.0,
-            shape=(self.num_agents + self.num_nodes,),
+            shape=(self.num_total_nodes,),
             dtype=np.float32
         )
 
         # Action: (agent_id * num_task_nodes + task_node_id)
-        self.action_space = spaces.Discrete(self.num_agents * self.num_nodes)
+        # 시작 위치는 제외하여, base_env와 action space가 다름
+        self.action_space = spaces.Discrete(self.num_agents * self.num_task_nodes)
 
     def reset(self):
         obs = self.env.reset()
@@ -25,14 +27,14 @@ class FlattenedEnv(gym.Env):
 
     def _flatten_obs(self, obs):
         task_visited = obs['visited'][self.num_agents:]
-        total_nodes = self.env.num_agents + self.env.num_nodes
+        total_nodes = self.env.num_agents + self.env.num_task_nodes
         current_norm = obs['current_nodes'] / total_nodes  # 수정
-        visited_f = task_visited.astype(np.float32)
-        return np.concatenate([current_norm, visited_f])
+        visited_float = task_visited.astype(np.float32)
+        return np.concatenate([current_norm, visited_float])
 
     def step(self, action):
-        agent_id = action // self.num_nodes
-        task_node_id = action % self.num_nodes
+        agent_id = action // self.num_task_nodes
+        task_node_id = action % self.num_task_nodes
         actual_node = self.num_agents + task_node_id
 
         obs, reward, done, info = self.env.step((agent_id, actual_node))
@@ -42,10 +44,10 @@ class FlattenedEnv(gym.Env):
         mask = self.env.get_action_mask()
         valid_actions = []
         for agent_id in range(self.num_agents):
-            for task_node_id in range(self.num_nodes):
+            for task_node_id in range(self.num_task_nodes):
                 actual_node = self.num_agents + task_node_id
                 if mask[agent_id, actual_node] == 1:
-                    action = agent_id * self.num_nodes + task_node_id
+                    action = agent_id * self.num_task_nodes + task_node_id
                     valid_actions.append(action)
         return valid_actions
 
@@ -55,7 +57,7 @@ class FlattenedEnv(gym.Env):
 
 if __name__ == '__main__':
     from env import mTSPEnv
-    base_env = mTSPEnv(num_agents=2, num_nodes=4)
+    base_env = mTSPEnv(num_agents=4, num_task_nodes=12)
     env = FlattenedEnv(base_env)
 
     obs = env.reset()
