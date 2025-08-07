@@ -9,7 +9,7 @@ class FlattenedEnv(gym.Env):
         self.num_agents = base_env.num_agents
         self.num_task_nodes = base_env.num_task_nodes
         self.num_total_nodes = self.num_agents + self.num_task_nodes
-
+        self.distance_matrix_norm = self.env.distance_matrix.flatten() / self.env.distance_matrix.max()
         # Flatten된 observation: 각 agent 위치 + visited (0 or 1)
         self.observation_space = spaces.Box(
             low=0.0, high=1.0,
@@ -27,9 +27,9 @@ class FlattenedEnv(gym.Env):
 
     def _flatten_obs(self, obs):
         task_visited = obs['visited'][self.num_agents:]
-        total_nodes = self.env.num_agents + self.env.num_task_nodes
-        current_norm = obs['current_nodes'] / total_nodes  # 수정
+        current_norm = obs['current_nodes'] / self.num_total_nodes
         visited_float = task_visited.astype(np.float32)
+        
         return np.concatenate([current_norm, visited_float])
 
     def step(self, action):
@@ -56,7 +56,7 @@ class FlattenedEnv(gym.Env):
 
 
 if __name__ == '__main__':
-    from env import mTSPEnv
+    from mtsp_env import mTSPEnv
     base_env = mTSPEnv(num_agents=4, num_task_nodes=12)
     env = FlattenedEnv(base_env)
 

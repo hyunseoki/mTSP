@@ -93,14 +93,20 @@ class mTSPEnv(gym.Env):
         self.current_nodes[agent_id] = next_node
         self.visited[next_node] = True
         self.agent_paths[agent_id].append(next_node)
-
-        reward = -cost
         done = self.visited.all()
 
-        if done:
-            # 전체 reward는 min-max 기준으로 계산 가능
-            reward = -np.max(self.agent_costs)
+        # if done:
+        #     reward = -max(self.agent_costs) * 100
+        # else:
+        #     reward = -self.distance_matrix[cur_node, next_node]
 
+        if done:
+            agent_total_distances = self.agent_costs  # shape: (num_agents,)
+            max_dist = max(agent_total_distances)
+            reward = -max_dist
+        else:
+            reward = 0
+            
         return self._get_obs(), reward, done, {}
 
     def render(self, mode='human'):
@@ -138,7 +144,7 @@ class mTSPEnv(gym.Env):
                         linewidth=2,
                         label=f'Agent {agent_id} (Cost: {self.agent_costs[agent_id]:.1f})' if i == 0 else None)
 
-        plt.title("mTSP Routes (Start + Task Nodes)")
+        plt.title(f"mTSP Routes, Maximum Cost : {max(self.agent_costs):.1f}")
         plt.legend()
         plt.grid(True)
         plt.axis('equal')
