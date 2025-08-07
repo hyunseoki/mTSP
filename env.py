@@ -3,24 +3,38 @@ import numpy as np
 from gym import spaces
 import matplotlib.pyplot as plt
 
+
+# class mSTP():
+#     def __init__(self, num_agents=2, num_nodes=4, size=100):
+#         assert num_agents < num_nodes
+#         self.num_nodes = num_nodes
+#         self.num_agents = num_agents
+#         self.size = size
+    
+#     def make_problem(self):
+#         coords = np.random.rand(self.num_agents + self.num_nodes, 2) * self.size
+#         dist_matrix = np.linalg.norm(coords[:, None, :] - coords[None, :, :], axis=-1)
+#         return coords, dist_matrix
+
+
 class mTSPEnv(gym.Env):
-    def __init__(self, num_agents=2, num_nodes=4, size=100):
+    def __init__(self, num_agents=2, num_task_nodes=4, size=100):
         super().__init__()
-        assert num_agents < num_nodes
-        self.num_nodes = num_nodes
+        assert num_agents < num_task_nodes
+        self.num_task_nodes = num_task_nodes
         self.num_agents = num_agents
-        self.coords, self.distance = self._make_problem(num_agents, num_nodes, size)       
+        self.num_total_nodes = num_agents + num_task_nodes
+        self.size = size
 
         # action: agent 선택 후, 다음 방문 노드 선택 → (agent_id, node_id)
-        self.action_space = spaces.MultiDiscrete([self.num_agents, self.num_nodes])
-
+        self.action_space = spaces.MultiDiscrete([self.num_agents, self.num_total_nodes])
         # observation: 각 agent의 current node + 전체 방문 여부
         self.observation_space = spaces.Dict({
             # 각 agent의 현재 위치를 나타냄. 예를 들어 agent가 2명이고 노드가 4개면 [0, 1]처럼 표현됨.
             # 각 값은 해당 agent가 위치한 노드 번호(0 ~ num_nodes-1)
-            'current_nodes': spaces.MultiDiscrete([self.num_nodes] * self.num_agents),
+            'current_nodes': spaces.MultiDiscrete([self.num_total_nodes] * self.num_agents),
             # 각 노드의 방문 여부를 0 또는 1로 나타냄. 예: [1, 0, 1, 0]이면 0번, 2번 노드는 방문, 1번, 3번은 미방문
-            'visited': spaces.MultiBinary(self.num_nodes),
+            'visited': spaces.MultiBinary(self.num_total_nodes),
         })
 
         self.reset()
@@ -31,24 +45,26 @@ class mTSPEnv(gym.Env):
         각 agent별로 방문 가능한 노드만 1, 나머지는 0인 마스크 반환.
         shape: (num_agents, num_nodes)
         """
-        mask = np.zeros((self.num_agents, self.num_nodes + self.num_agents), dtype=np.int32)
+        mask = np.zeros((self.num_agents, self.num_total_nodes), dtype=np.int32)
         for agent_id in range(self.num_agents):
-            for node_id in range(self.num_nodes):
+            for node_id in range(self.num_total_nodes):
                 if not self.visited[node_id]:
                     mask[agent_id, node_id] = 1
         return mask
 
 
-    def _make_problem(self, num_agents, num_nodes, size):
-        coords = np.random.rand(num_agents + num_nodes, 2) * size
+    def _make_problem(self):
+        coords = np.random.rand(self.num_total_nodes, 2) * self.size
         dist_matrix = np.linalg.norm(coords[:, None, :] - coords[None, :, :], axis=-1)
         return coords, dist_matrix
 
 
     def reset(self):
         # 초기 상태
+        self.coords, self.distance_matrix = self._make_problem()
+
         self.current_nodes = np.arange(self.num_agents)  # [0, 1, ..., num_agents-1] 시작위치, agent0은 0번 노드, agent1은 1번 노드 ...
-        self.visited = np.zeros(self.num_agents + self.num_nodes, dtype=bool)
+        self.visited = np.zeros(self.num_total_nodes, dtype=bool)
         self.visited[self.current_nodes] = True
         self.agent_paths = [[start] for start in self.current_nodes]
         self.agent_costs = np.zeros(self.num_agents)
@@ -61,18 +77,18 @@ class mTSPEnv(gym.Env):
             'visited': self.visited.copy()
         }
 
-
     def step(self, action):
         agent_id, next_node = action
         cur_node = self.current_nodes[agent_id]
 
-        if self.visited[next_node] or next_node < self.num_agents:
+        # 방어코드
+        if self.visited[next_node]:
             reward = -100  # 페널티: 이미 방문한 노드
             done = False
-            return self._get_obs(), reward, done, {}
+            return self._get_obs(), reward, done, {'error': 'Node already visited'}
 
         # 이동
-        cost = self.distance[cur_node, next_node]
+        cost = self.distance_matrix[cur_node, next_node]
         self.agent_costs[agent_id] += cost
         self.current_nodes[agent_id] = next_node
         self.visited[next_node] = True
@@ -96,7 +112,7 @@ class mTSPEnv(gym.Env):
         plt.figure(figsize=(8, 6))
 
         n_start = self.num_agents  # 출발점 개수 (보통 2개: 0, 1)
-        total_nodes = self.num_agents + self.num_nodes
+        total_nodes = self.num_agents + self.num_task_nodes
 
         # Plot 출발점 (0 ~ num_agents-1): 빨간 점 + "start"
         plt.scatter(self.coords[:n_start, 0], self.coords[:n_start, 1],
@@ -130,17 +146,17 @@ class mTSPEnv(gym.Env):
 
 
 if __name__ == '__main__':
-    env = mTSPEnv(num_agents=2, num_nodes=4)
+    env = mTSPEnv(num_agents=4, num_task_nodes=7)
     obs = env.reset()
 
     done = False
     while not done:
         # 임의 정책: 방문 안 한 노드 중 하나 선택
         for agent_id in range(env.num_agents):
-            possible = np.where(~obs['visited'])[0]
-            if len(possible) == 0:
+            possible_nodes = np.where(~obs['visited'])[0]
+            if len(possible_nodes) == 0:
                 continue
-            action = (agent_id, np.random.choice(possible))
+            action = (agent_id, np.random.choice(possible_nodes))
             obs, reward, done, _ = env.step(action)
             if done:
                 break
